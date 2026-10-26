@@ -35,6 +35,8 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QSaveFile>
+#include <QSignalBlocker>
 #include <QStandardPaths>
 #include <iostream>
 #include <array>
@@ -525,6 +527,37 @@ void MainWindow::setupUI()
     scrollLayout->addWidget(snapshotGroup);
 
     scrollLayout->addStretch();
+
+    const QString autostartPath = QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation)
+        + "/autostart/obsbot-control.desktop";
+    auto *startAtLogin = new QCheckBox(tr("Start at login"), scrollContent);
+    startAtLogin->setObjectName("footerCheckbox");
+    startAtLogin->setChecked(QFileInfo::exists(autostartPath));
+    connect(startAtLogin, &QCheckBox::toggled, this, [this, startAtLogin, autostartPath](bool enabled) {
+        bool ok = false;
+        if (enabled) {
+            QDir().mkpath(QFileInfo(autostartPath).absolutePath());
+            QSaveFile file(autostartPath);
+            QString executable = QCoreApplication::applicationFilePath();
+            // The installed wrapper also provides the bundled SDK library path.
+            QString wrapper = QDir::homePath() + "/.local/bin/obsbot-gui";
+            if (QFileInfo::exists(wrapper)) executable = wrapper;
+            executable.replace("\\", "\\\\").replace("\"", "\\\"");
+            QByteArray entry = QString("[Desktop Entry]\nType=Application\nName=OBSBOT Control\n"
+                "Exec=\"%1\"\nIcon=obsbot-control\nTerminal=false\nX-GNOME-Autostart-enabled=true\n")
+                .arg(executable).toUtf8();
+            if (file.open(QIODevice::WriteOnly))
+                ok = file.write(entry) == entry.size() && file.commit();
+        } else {
+            ok = !QFileInfo::exists(autostartPath) || QFile::remove(autostartPath);
+        }
+        if (!ok) {
+            QSignalBlocker blocker(startAtLogin);
+            startAtLogin->setChecked(!enabled);
+            QMessageBox::warning(this, tr("Start at login"), tr("Could not update startup settings."));
+        }
+    });
+    scrollLayout->addWidget(startAtLogin);
 
     m_startMinimizedCheckbox = new QCheckBox(tr("Launch minimized / Close to tray"), scrollContent);
     m_startMinimizedCheckbox->setObjectName("footerCheckbox");

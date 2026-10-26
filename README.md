@@ -142,6 +142,12 @@ The build script automatically:
 4. Adjust settings as desired
 5. Settings auto-save to `~/.config/obsbot-control/settings.conf`
 
+### Start at Login
+
+Enable **Start at login** in the main controls to launch OBSBOT Control automatically
+when you sign in. Use **Launch minimized / Close to tray** to start without opening
+a window. Disable **Start at login** to remove the desktop autostart entry.
+
 ### Camera Preview
 - Click **"Show Camera Preview"** to enable live preview
 - If another app is using the camera, you'll see a warning with the process name
