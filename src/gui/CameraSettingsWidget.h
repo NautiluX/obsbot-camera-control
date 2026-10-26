@@ -24,6 +24,13 @@ public:
 
     void updateFromState(const CameraController::CameraState &state);
     void setV4l2Mode(bool v4l2Only);
+    bool restoreColorWatchSettings();
+    void setColorWatchEnabled(bool enabled);
+
+signals:
+    void colorWatchStatusChanged(const QString &status);
+
+public:
 
     // Getters for current UI state
     bool isHDREnabled() const { return m_hdrCheckBox->isChecked(); }
@@ -140,6 +147,11 @@ private:
     QSlider *m_contrastSlider;
     QCheckBox *m_saturationAutoCheckBox;
     QSlider *m_saturationSlider;
+    bool m_colorWatchEnabled = false;
+    QTimer *m_colorWatchTimer = nullptr;
+    QString m_watchedDevicePath;
+    void enforceColorSettings();
+    void saveColorWatchSettings();
     QComboBox *m_whiteBalanceComboBox;
     QSlider *m_whiteBalanceKelvinSlider;
     QLabel *m_whiteBalanceKelvinLabel;

@@ -142,6 +142,20 @@ The build script automatically:
 4. Adjust settings as desired
 5. Settings auto-save to `~/.config/obsbot-control/settings.conf`
 
+### Keep Color Settings Applied
+
+Enable **Watch camera status and enforce color settings** in the main controls to
+restore your selected camera's color settings when another application changes them.
+The watcher checks every half-second and continues while the app is in the tray,
+without requiring a preview. It uses supported standard Linux V4L2 controls rather
+than a specific camera model.
+
+Use the existing controls normally: Auto white balance stays automatic; presets
+and manual Kelvin settings are reapplied as selected. Brightness, contrast, and
+saturation are enforced when their Auto checkbox is off. Unsupported controls are
+skipped. Disable the watcher to let other applications manage these settings.
+The preference and selected colors persist across app restarts.
+
 ### Camera Preview
 - Click **"Show Camera Preview"** to enable live preview
 - If another app is using the camera, you'll see a warning with the process name

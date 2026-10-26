@@ -35,6 +35,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QSignalBlocker>
 #include <QStandardPaths>
 #include <iostream>
 #include <array>
@@ -187,6 +188,10 @@ MainWindow::MainWindow(QWidget *parent)
 
     // Load configuration
     loadConfiguration();
+    {
+        QSignalBlocker blocker(m_watchColorsCheckbox);
+        m_watchColorsCheckbox->setChecked(m_settingsWidget->restoreColorWatchSettings());
+    }
 
     // Check if we should start minimized
     if (m_controller->getConfig().getSettings().startMinimized) {
@@ -525,6 +530,21 @@ void MainWindow::setupUI()
     scrollLayout->addWidget(snapshotGroup);
 
     scrollLayout->addStretch();
+
+    m_watchColorsCheckbox = new QCheckBox(tr("Watch camera status and enforce color settings"), scrollContent);
+    m_watchColorsCheckbox->setObjectName("footerCheckbox");
+    connect(m_watchColorsCheckbox, &QCheckBox::toggled, m_settingsWidget,
+            &CameraSettingsWidget::setColorWatchEnabled);
+    scrollLayout->addWidget(m_watchColorsCheckbox);
+    auto *watchStatus = new QLabel(scrollContent);
+    watchStatus->setWordWrap(true);
+    watchStatus->hide();
+    connect(m_settingsWidget, &CameraSettingsWidget::colorWatchStatusChanged,
+            watchStatus, [watchStatus](const QString &status) {
+        watchStatus->setText(status);
+        watchStatus->setVisible(!status.isEmpty());
+    });
+    scrollLayout->addWidget(watchStatus);
 
     m_startMinimizedCheckbox = new QCheckBox(tr("Launch minimized / Close to tray"), scrollContent);
     m_startMinimizedCheckbox->setObjectName("footerCheckbox");

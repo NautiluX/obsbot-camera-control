@@ -3,6 +3,11 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <algorithm>
+#include <QSettings>
+#include <QStandardPaths>
+#include <QDir>
+#include <QFileInfo>
+#include <QDebug>
 
 CameraSettingsWidget::CameraSettingsWidget(CameraController *controller, QWidget *parent)
     : QWidget(parent)
@@ -138,6 +143,17 @@ CameraSettingsWidget::CameraSettingsWidget(CameraController *controller, QWidget
     m_whiteBalanceKelvinLabel->setEnabled(false);
     wbKelvinLayout->addWidget(m_whiteBalanceKelvinLabel);
     imageLayout->addLayout(wbKelvinLayout);
+
+    // Remains active when the window is hidden and when preview is off.
+    m_colorWatchTimer = new QTimer(this);
+    m_colorWatchTimer->setInterval(500);
+    connect(m_colorWatchTimer, &QTimer::timeout, this, &CameraSettingsWidget::enforceColorSettings);
+    auto saveDesiredColors = [this]() { saveColorWatchSettings(); };
+    for (auto *slider : {m_brightnessSlider, m_contrastSlider, m_saturationSlider, m_whiteBalanceKelvinSlider})
+        connect(slider, &QSlider::valueChanged, this, saveDesiredColors);
+    for (auto *box : {m_brightnessAutoCheckBox, m_contrastAutoCheckBox, m_saturationAutoCheckBox})
+        connect(box, &QCheckBox::toggled, this, saveDesiredColors);
+    connect(m_whiteBalanceComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, saveDesiredColors);
 
     layout->addWidget(imageGroupBox);
     layout->addStretch();
@@ -322,7 +338,7 @@ void CameraSettingsWidget::updateFromState(const CameraController::CameraState &
 
     // Always update slider values when in auto mode (to show polled values)
     // When not in auto mode, only update if not user-initiated
-    if (!m_userInitiated && !commandInFlight && !isSettling) {
+    if (!m_colorWatchEnabled && !m_userInitiated && !commandInFlight && !isSettling) {
         if (m_brightnessSlider->value() != state.brightness) {
             m_brightnessSlider->blockSignals(true);
             m_brightnessSlider->setValue(state.brightness);
@@ -343,16 +359,16 @@ void CameraSettingsWidget::updateFromState(const CameraController::CameraState &
     }
 
     int desiredWbIndex = m_whiteBalanceComboBox->findData(state.whiteBalance);
-    if (!m_userInitiated && !commandInFlight && !isSettling && desiredWbIndex >= 0 &&
+    if (!m_colorWatchEnabled && !m_userInitiated && !commandInFlight && !isSettling && desiredWbIndex >= 0 &&
         m_whiteBalanceComboBox->currentIndex() != desiredWbIndex) {
         m_whiteBalanceComboBox->blockSignals(true);
         m_whiteBalanceComboBox->setCurrentIndex(desiredWbIndex);
         m_whiteBalanceComboBox->blockSignals(false);
     }
 
-    updateWhiteBalanceControls(state.whiteBalance);
+    updateWhiteBalanceControls(getWhiteBalance());
 
-    if (!m_userInitiated && !commandInFlight && !isSettling) {
+    if (!m_colorWatchEnabled && !m_userInitiated && !commandInFlight && !isSettling) {
         int clampedKelvin = std::clamp(state.whiteBalanceKelvin,
             m_whiteBalanceKelvinSlider->minimum(), m_whiteBalanceKelvinSlider->maximum());
         if (m_whiteBalanceKelvinSlider->value() != clampedKelvin) {
@@ -431,4 +447,123 @@ void CameraSettingsWidget::updateWhiteBalanceKelvinLabel(int value)
     if (m_whiteBalanceKelvinLabel) {
         m_whiteBalanceKelvinLabel->setText(QString::number(value) + QStringLiteral(" K"));
     }
+}
+
+
+namespace {
+QString watchSettingsPath()
+{
+    return QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation)
+        + "/obsbot-control/color-settings-watch.ini";
+}
+}
+
+bool CameraSettingsWidget::restoreColorWatchSettings()
+{
+    QSettings settings(watchSettingsPath(), QSettings::IniFormat);
+    // Migrate the original white-balance-only preference once.
+    if (!settings.contains("enabled")) {
+        QSettings legacy(QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation)
+            + "/obsbot-control/white-balance-lock.ini", QSettings::IniFormat);
+        settings.setValue("enabled", legacy.value("enabled", false));
+        if (legacy.value("enabled", false).toBool()) {
+            settings.setValue("whiteBalance", static_cast<int>(Device::DevWhiteBalanceManual));
+            settings.setValue("kelvin", legacy.value("kelvin", 5500));
+        }
+    }
+    if (settings.value("enabled", false).toBool()) {
+        setBrightnessAuto(settings.value("brightnessAuto", isBrightnessAuto()).toBool());
+        setBrightness(settings.value("brightness", getBrightness()).toInt());
+        setContrastAuto(settings.value("contrastAuto", isContrastAuto()).toBool());
+        setContrast(settings.value("contrast", getContrast()).toInt());
+        setSaturationAuto(settings.value("saturationAuto", isSaturationAuto()).toBool());
+        setSaturation(settings.value("saturation", getSaturation()).toInt());
+        setWhiteBalance(settings.value("whiteBalance", getWhiteBalance()).toInt());
+        setWhiteBalanceKelvin(settings.value("kelvin", getWhiteBalanceKelvin()).toInt());
+        setColorWatchEnabled(true);
+    }
+    return m_colorWatchEnabled;
+}
+
+void CameraSettingsWidget::setColorWatchEnabled(bool enabled)
+{
+    m_colorWatchEnabled = enabled;
+    QSettings settings(watchSettingsPath(), QSettings::IniFormat);
+    settings.setValue("enabled", enabled);
+    settings.sync();
+    if (enabled) {
+        saveColorWatchSettings();
+        m_colorWatchTimer->start();
+        enforceColorSettings();
+    } else {
+        m_colorWatchTimer->stop();
+        emit colorWatchStatusChanged(QString());
+    }
+}
+
+void CameraSettingsWidget::saveColorWatchSettings()
+{
+    if (!m_colorWatchEnabled) return;
+    QSettings settings(watchSettingsPath(), QSettings::IniFormat);
+    settings.setValue("brightnessAuto", isBrightnessAuto());
+    settings.setValue("brightness", getBrightness());
+    settings.setValue("contrastAuto", isContrastAuto());
+    settings.setValue("contrast", getContrast());
+    settings.setValue("saturationAuto", isSaturationAuto());
+    settings.setValue("saturation", getSaturation());
+    settings.setValue("whiteBalance", getWhiteBalance());
+    settings.setValue("kelvin", getWhiteBalanceKelvin());
+    settings.sync();
+}
+
+void CameraSettingsWidget::enforceColorSettings()
+{
+    if (!m_colorWatchEnabled) return;
+    const QString selectedPath = m_controller->getVideoDevicePath();
+    if (!selectedPath.isEmpty()) {
+        // Keep a stable identity while the controller releases its SDK handle in the tray.
+        m_watchedDevicePath.clear();
+        QDir ids("/dev/v4l/by-id");
+        for (const auto &entry : ids.entryList(QDir::Files | QDir::System)) {
+            if (QFileInfo(ids.filePath(entry)).canonicalFilePath() == QFileInfo(selectedPath).canonicalFilePath()) {
+                m_watchedDevicePath = ids.filePath(entry);
+                break;
+            }
+        }
+    }
+    const QString path = selectedPath.isEmpty() ? m_watchedDevicePath : selectedPath;
+    V4l2Backend camera;
+    if (path.isEmpty() || !camera.open(path.toStdString())) {
+        emit colorWatchStatusChanged("Waiting for the selected camera…");
+        return;
+    }
+    bool ok = true;
+    bool changed = false;
+    auto enforce = [&](uint32_t id, int desired) {
+        const auto range = camera.queryRange(id);
+        if (!range.valid) return; // Unsupported controls must not prevent other corrections.
+        desired = std::clamp(desired, range.min, range.max);
+        if (range.step > 1)
+            desired = range.min + ((desired - range.min) / range.step) * range.step;
+        const int actual = camera.getControl(id);
+        if (actual < 0) { ok = false; return; }
+        if (actual != desired) {
+            changed = true;
+            if (!camera.setControl(id, desired) || camera.getControl(id) != desired)
+                ok = false;
+        }
+    };
+    if (!isBrightnessAuto()) enforce(V4L2_CID_BRIGHTNESS, getBrightness());
+    if (!isContrastAuto()) enforce(V4L2_CID_CONTRAST, getContrast());
+    if (!isSaturationAuto()) enforce(V4L2_CID_SATURATION, getSaturation());
+    const int mode = getWhiteBalance();
+    const bool automatic = mode == static_cast<int>(Device::DevWhiteBalanceAuto);
+    enforce(V4L2_CID_AUTO_WHITE_BALANCE, automatic ? 1 : 0);
+    if (!automatic) {
+        const int temperature = mode == static_cast<int>(Device::DevWhiteBalanceManual)
+            ? getWhiteBalanceKelvin() : m_controller->whiteBalancePresetToKelvin(mode);
+        if (temperature > 0) enforce(V4L2_CID_WHITE_BALANCE_TEMPERATURE, temperature);
+    }
+    emit colorWatchStatusChanged(ok ? QString() : "Could not enforce some color settings; retrying…");
+    if (ok && changed) qInfo() << "Restored selected camera color settings";
 }

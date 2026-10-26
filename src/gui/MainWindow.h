@@ -107,6 +107,7 @@ private:
     QLabel *m_cameraWarningLabel;  // Warning for camera in use
     QLabel *m_statusLabel;
     QCheckBox *m_startMinimizedCheckbox;
+    QCheckBox *m_watchColorsCheckbox;
     QLabel *m_statusChip;
     QSplitter *m_splitter;
     QFrame *m_previewCard;

@@ -122,6 +122,7 @@ public:
     bool setSaturation(int value);  // 0-255
     bool setWhiteBalance(int mode); // 0=Auto, 1=Daylight, etc.
     bool setWhiteBalanceManual(int kelvin);
+    int whiteBalancePresetToKelvin(int mode) const;
 
     // Configuration
     bool loadConfig(std::vector<Config::ValidationError> &errors);
@@ -182,7 +183,6 @@ private:
     void refreshControlRanges();
     void resetControlRanges();
     int clampToRange(int value, const ParamRange &range, int fallbackMin, int fallbackMax) const;
-    int whiteBalancePresetToKelvin(int mode) const;
     bool applyManualWhiteBalance(int kelvin, int displayMode);
     bool isWhiteBalanceTypeSupported(int mode) const;
 };
